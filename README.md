@@ -1,81 +1,44 @@
-# Práctica 2 de *Inteligencia Artificial*, curso 2025/2026
+# Multi-Agent Autonomous Routing & Synchronization System
 
-## Prerrequisitos
+## Overview
+This project implements a C++ simulation of a multi-agent system designed to autonomously explore, navigate, and modify a procedurally generated grid environment. The core objective is to calculate and construct an optimal pipeline network across uneven terrain while strictly adhering to energy budgets, ecological impact limits, and physical gravity constraints (fluid dynamics).
 
-### Crear una cuenta en [GitHub](https://github.com/). 
-Para ello, puedes usar tu correo personal, el de *@correo.ugr.es* o el de *@go.ugr.es*.
+The system features two distinct agents (Engineer and Technician) with asymmetric capabilities. They must synchronize their state machines to perform joint operations in a partially observable environment (Fog of War).
 
+## Algorithmic Architecture & Key Features
 
-### 1. Añadir tu clave SSH a GitHub
-Hay varias maneras de conectarte desde tu ordenador a GitHub. Si utilizas un navegador, usarás tu usuario y contraseña. Desde el terminal, lo más cómodo es utilizar una clave SSH. Puedes crear una nueva si no tienes, o reutilizar una ya existente. Tienes toda la información para realizar la configuración en: 
-[Conectar a GitHub con SSH](https://docs.github.com/es/authentication/connecting-to-github-with-ssh)
+### 1. Advanced Pathfinding & Optimization
+*   **Cost-Aware A* Search:** Implemented A* using Chebyshev distance heuristics to optimize energy consumption over uneven terrain[cite: 15]. The heuristic is mathematically admissible, ensuring optimal path discovery[cite: 15].
+*   **Multi-Objective A* with Pareto Pruning:** To route pipelines, the algorithm minimizes the number of segments while constrained by a strict "ecological budget"[cite: 19]. A custom dictionary tracks the minimum ecological impact per state $(f, c, \text{height modification})$, pruning branches that are suboptimal (Pareto-like pruning) to prevent memory saturation[cite: 19].
+*   **Dynamic Gravity Constraints:** The state-space generation automatically evaluates terrain height alterations ($\pm 1$) to ensure water flows downwards or maintains elevation, dynamically factoring the ecological cost of terraforming (`RAISE`/`DIG` actions) into the node expansion[cite: 19].
 
+### 2. Multi-Agent Synchronization (Master-Slave Architecture)
+*   **State-Machine Coordination:** The agents utilize a Master-Slave synchronization model for joint operations[cite: 23]. The Engineer (Master) plans the global pipeline, navigates to nodes, conditions the terrain, and issues a `COME` signal[cite: 23]. The Technician (Slave) remains in an energy-saving `IDLE` state until called, calculates a dynamic route avoiding dynamic obstacles, and synchronizes orientation to execute the `INSTALL` action simultaneously[cite: 23].
 
-### 2. Crear tu copia personal del repositorio de la asignatura
-Cada estudiante debe tener su propia copia del repositorio para poder trabajar sobre ella. En adelante, a tu copia la llamaremos *origin*, y al repositorio original de la asignatura lo llamaremos *upstream* (NOTA: Estas son convenciones que la mayoría de los desarrolladores usan, pero los puedes llamar como quieras). 
+### 3. Partial Observability & Dynamic Replanning
+*   **Fog of War Navigation:** Agents operate with a limited visual cone (representing terrain type, height, and dynamic entities)[cite: 38]. 
+*   **"GPS Gravity" Heuristic:** During blind exploration, the agents alter movement priorities to minimize the Manhattan distance toward known target coordinates, forcing progress through penalized terrain if necessary[cite: 28].
+*   **Real-Time Collision Avoidance:** If an agent detects a previously hidden obstacle, the current search tree is aborted, the local map memory is updated, and the A* trajectory is dynamically recalculated[cite: 28].
 
-> La forma usual de crear tu copia del repositorio es realizando un *fork*. Sin embargo, dado que realizar un *fork* de un repositorio con visibilidad pública obliga al que la copia sea también pública, nosotros usaremos un procedimiento diferente que nos permite que nuestra copia del repositorio sea privada.
+## Technical Stack
+*   **Language:** C++17
+*   **Concepts:** Artificial Intelligence, Heuristic Search (A*, BFS), Multi-Agent Systems, Finite State Machines (FSM), Procedural Navigation.
+*   **Dependencies:** `freeglut`, `openmpi`, `boost`, `cmake`[cite: 58].
 
-Para realizar la copia, una vez que tengas creada tu cuenta en GitHub, haz click en <https://github.com/new/import> y rellena tal y como se ve en la imagen de abajo. El repositorio que quieres importar es `https://github.com/ugr-ccia-IA/practica2`. ¡Asegúrate de que tu repositorio es privado!
+## Build and Execution
 
-![Importar repositorio practica2](doc/img/import_new_repo.png)
+The project supports both a GUI visualizer and a headless batch mode for performance testing and debugging.
 
-
-### 3. Clonar tu repositorio en tu máquina
-Una vez hecho el paso anterior, tendrás tu repositorio personal de la práctica1 en GitHub; puedes descargarlo a tu ordenador usando:
-`git clone git@github.com:TU_USUARIO_GITHUB/practica2.git` (si no has configurado tu clave SSH, esto no funcionará).
-
-
-### 4. Modificar el código y guardar los cambios
-Es el momento de empezar a modificar ficheros. Abre el fichero README.md (este fichero), ve al final y añade una línea que diga "Esto lo puse yo."
-Una vez lo hayas modificado, guarda el fichero, y ejecuta los siguientes comandos en el terminal estando dentro de la carpeta `practica2`:
-
+### Compilation
+A setup script is provided for Linux environments:
+```bash
+./install.sh
+make
 ```
-git add . 
-git commit -m "Modificando README.md"
-git push origin main 
+
+### Running the Simulation
+To execute the simulation in headless mode (ideal for testing search efficiency):
+```bash
+./practica2SG -m ./mapas/mapa100.map -seed 0 -Tiempo 3000 -Ambiental 1719 -Energia 4581
 ```
-
-Los tres comandos anteriores le indican a git que 1) queremos guardar una nueva versión con todos los ficheros modificados de la carpeta, 2) que haga esa versión y le ponga el comentario "Cambiando el enlace del botón", y 3) que envíe esta nueva versión a la copia de nuestro repositorio alojada en GitHub.
-
-Este proceso es el que debes repetir cada vez que vayas avanzando en la implementación de la práctica: add, commit, push.
-
-
-
-### 5. Enlazar tu repositorio personal con el de la asignatura
-Aunque tu repositorio y el de la asignatura (recuerda que los conocemos por *origin* y *upstream* respectivamente) sean independientes, nos va a interesar que estén enlazados. De esta forma, podrás aplicar fácilmente sobre tu repositorio (*origin*) cualquier actualización que los profesores realicemos en *upstream*. Para enlazarlos, ejecuta lo siguiente dentro de la carpeta de tu repositorio:
-
-`git remote add upstream git@github.com:ugr-ccia-IA/practica2.git`
-
-
-### Actualizar tu repositorio con cambios realizados en el de la asignatura
-Una vez tengas los repositiorios enlazados, lo único que debes hacer para aplicar posibles cambios en el repositorio de la asignatura en tu repositorio (cambios de *upstream* en *origin*) es: `git pull upstream main`
-
-Hacer esto no sobreescribirá tus avances en la implementación de la práctica, puesto que tú no deberías haber modificado ninguna parte del código diferente a la que se indica en el guión.
-
-Si quieres que esos cambios también se guarden en github, a continuación ejecuta: `git push origin main`
-
-
-> Si quieres saber más sobre Git y GitHub, en Internet existen multitud de recursos, incluidos videos y tutoriales. Para realizar esta práctica sólo necesitas lo básico (hacer commits), pero hay muchas cosas más que se pueden hacer con estas herramientas (uso de ramas, gestión de conflictos, etc.) 
-El propio GitHub pone a tu disposición un [breve curso](https://classroom.github.com/a/W33pQ3pa) (en inglés) para aprender lo básico.
-
-
-## Realización de la práctica
-El guión (disponible en [PRADO](https://pradogrado2526.ugr.es/)) contiene toda la información sobre en qué consiste la práctica2. Leelo con atención.
-
-Junto a ellos, también tienes a tu disposición una pequeña presentación de resumen, y un tutorial. Debes revisarlos pues continen los primeros pasos a realizar.
-
-
-### Instalación local (linux)
-
-Una vez que tengas tu repositorio (el fork que has realizado) en tu ordenador, puedes compilar el código usando `./install.sh` (esto instalará todas las dependencias, y ejecutará `cmake` y `make`. ).
-A continuación, puedes lanzar el software con interfaz gráfica con `./practica2`, o sin ella con `./practica2SG`.
-
-Cuando realices cualquier modificación en el código, debes recompilar, así que usa `make clean` y `make -j$(nproc)`.
-
-
-
-
-## Más información
-Hemos creado un [fichero con preguntas frecuentes](./FAQ.md) que han ido apareciendo en las distintas sesiones de prácticas.
-
+*Parameters can be adjusted to test algorithm robustness under tighter energy (`-Energia`) or ecological (`-Ambiental`) constraints.*

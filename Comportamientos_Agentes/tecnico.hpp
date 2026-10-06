@@ -5,8 +5,68 @@
 #include <time.h>
 #include <thread>
 #include <list>
+#include <map>
+#include <utility>
+#include <set>
 
 #include "comportamientos/comportamiento.hpp"
+
+struct EstadoT {
+  ubicacion site;
+  bool zapatillas;
+
+  bool operator==(const EstadoT &st) const {
+    return site.f == st.site.f && 
+            site.c == st.site.c && 
+            site.brujula == st.site.brujula && 
+            zapatillas == st.zapatillas;
+  }
+
+  bool operator<(const EstadoT &st) const {
+    if (site.f < st.site.f) return true;
+    else if (site.f == st.site.f && site.c < st.site.c) return true;
+    else if (site.f == st.site.f && site.c == st.site.c && site.brujula < st.site.brujula) return true;
+    else if (site.f == st.site.f && site.c == st.site.c && site.brujula == st.site.brujula && (!zapatillas && st.zapatillas)) return true;
+    else return false;
+  }
+};
+
+struct NodoT {
+  EstadoT estado;
+  std::list<Action> secuencia;
+  int coste_g;      // Energía consumida desde el inicio
+  int heuristica_h; // Estimación de energía hasta la meta
+
+  // F(n) = G(n) + H(n)
+  int f() const {
+    return coste_g + heuristica_h;
+  }
+
+  bool operator==(const NodoT &node) const {
+    return estado == node.estado;
+  }
+
+  // Operador < para el SET de Explorados (búsqueda rápida)
+  bool operator<(const NodoT &node) const {
+    if (estado.site.f < node.estado.site.f) return true;
+    else if (estado.site.f == node.estado.site.f && estado.site.c < node.estado.site.c) return true;
+    else if (estado.site.f == node.estado.site.f && estado.site.c == node.estado.site.c && estado.site.brujula < node.estado.site.brujula) return true;
+    else if (estado.site.f == node.estado.site.f && estado.site.c == node.estado.site.c && estado.site.brujula == node.estado.site.brujula && (!estado.zapatillas && node.estado.zapatillas)) return true;
+    else return false;
+  }
+};
+
+// Comparador para la COLA DE PRIORIDAD (Min-Heap) del A*
+// En C++, priority_queue saca el "mayor" por defecto, así que invertimos el operador
+// para que el nodo con MENOR F(n) se expanda primero.
+struct ComparaNodosT {
+  bool operator()(const NodoT& a, const NodoT& b) const {
+    if (a.f() != b.f()) return a.f() > b.f();
+    if (a.coste_g != b.coste_g) return a.coste_g > b.coste_g; 
+    
+    return a.secuencia.size() > b.secuencia.size(); 
+  }
+};
 
 // =========================================================================
 // DOCUMENTACIÓN PARA ESTUDIANTES
@@ -33,6 +93,8 @@ public:
    */
   ComportamientoTecnico(unsigned int size = 0) : Comportamiento(size) {
     // Inicializar Variables de Estado
+    last_action = IDLE;
+    tiene_zapatillas = false;
   }
 
   /**
@@ -43,8 +105,8 @@ public:
   ComportamientoTecnico(std::vector<std::vector<unsigned char>> mapaR, 
                        std::vector<std::vector<unsigned char>> mapaC): 
                        Comportamiento(mapaR, mapaC) {
-    // Inicializar Variables de Estado
-
+    last_action = IDLE;
+    tiene_zapatillas = false;
   }
 
   ComportamientoTecnico(const ComportamientoTecnico &comport): Comportamiento(comport) {}
@@ -139,6 +201,8 @@ protected:
    */
   bool EsCasillaTransitableLevel0(int f, int c, bool tieneZapatillas);
 
+  bool EsCasillaTransitable(int f, int c, bool tieneZapatillas);
+
   /**
    * @brief Comprueba si la casilla de delante es accesible por diferencia de altura.
    * REGLA PARA TÉCNICO: Desnivel máximo siempre 1 (independiente de zapatillas).
@@ -187,8 +251,65 @@ private:
   // =========================================================================
   // VARIABLES DE ESTADO (PUEDEN SER EXTENDIDAS POR EL ALUMNO)
   // =========================================================================
+  Action last_action;
+  bool tiene_zapatillas;
 
-  
+  // Mapa para recordar las visitas a cada casilla
+  std::map<std::pair<int, int>, int> mapa_visitas;
+
+  // Funciones auxiliares del Técnico
+  /**
+  * @brief Comprueba si el movimiento a la casilla de delante es viable, según sea esta transitable y la altura que tenga
+  * @param actual    Casilla actual del agente
+  * @param zap  Booleano que es true si tiene las zapatillas
+  * @return True si la casilla es transitable y tiene un desnivel aceptable
+  */
+  bool AndarViable0(const ubicacion &actual, bool zap);
+
+  bool AndarViable(const ubicacion &actual, bool zap);
+
+  // Variables para la ejecución de planes
+  bool hayPlan = false;
+  std::list<Action> plan;
+
+  // Funciones del Algoritmo A*
+  std::list<Action> AEstrellaTecnico(const EstadoT &inicio, const EstadoT &final, 
+                                     const std::vector<std::vector<unsigned char>> &terreno, 
+                                     const std::vector<std::vector<unsigned char>> &altura,
+                                     const std::set<std::pair<int, int>> &obstaculos = std::set<std::pair<int, int>>(),
+                                     int limite_nodos = -1);
+                                       
+  EstadoT applyT(Action accion, const EstadoT &st, 
+                 const std::vector<std::vector<unsigned char>> &terreno, 
+                 const std::vector<std::vector<unsigned char>> &altura,
+                 const std::set<std::pair<int, int>> &obstaculos = std::set<std::pair<int, int>>());
+
+  // Función para calcular el coste de energía de una acción
+  int costeEnergiaT(Action accion, const EstadoT &st, 
+                    const std::vector<std::vector<unsigned char>> &terreno, 
+                    const std::vector<std::vector<unsigned char>> &altura);
+
+
+  // --- VARIABLES NIVEL 5 ---
+  enum EstadoTecnicoN5 {
+    T5_ESPERANDO,
+    T5_IR_DESTINO,
+    T5_MIRAR_INGENIERO
+  };
+  EstadoTecnicoN5 estado_t5 = T5_ESPERANDO;
+
+  // Guardamos las coordenadas para que no se nos borren
+  int dest_f_t5 = -1;
+  int dest_c_t5 = -1;
+
+  // Memoria a corto plazo de obstáculos dinámicos (el ingeniero)
+  std::set<std::pair<int, int>> obstaculos_t5;
+
+  // --- VARIABLES NIVEL 6 ---
+  bool construyendo_t6 = false;
+  bool n5_stuck_t6 = false;
+  int mapa_conocido_t6 = 0;
+  Action ExploracionGuiadaNivel6(Sensores sensores);
 };
 
 #endif

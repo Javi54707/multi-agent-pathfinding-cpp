@@ -7,8 +7,66 @@
 #include <set>
 #include <thread>
 #include <time.h>
+#include <utility>
 
 #include "comportamientos/comportamiento.hpp"
+
+struct EstadoI {
+  ubicacion site;
+  bool zapatillas;
+
+  // Sobrecarga del operador == para comparar estados
+  bool operator==(const EstadoI &st) const {
+    return site.f == st.site.f && 
+            site.c == st.site.c && 
+            site.brujula == st.site.brujula && 
+            zapatillas == st.zapatillas;
+  }
+};
+
+struct NodoI {
+  EstadoI estado;
+  std::list<Action> secuencia; // Camino de acciones hasta este nodo
+
+  // Sobrecarga para usar Find o set
+  bool operator==(const NodoI &node) const {
+      return estado == node.estado;
+  }
+
+  // Sobrecarga del operador < para poder usar std::set en la lista de 'explored'
+  // Es vital para que la búsqueda sea O(log N) y no tarde una eternidad.
+  bool operator<(const NodoI &node) const {
+    if (estado.site.f < node.estado.site.f) return true;
+    else if (estado.site.f == node.estado.site.f && estado.site.c < node.estado.site.c) return true;
+    else if (estado.site.f == node.estado.site.f && estado.site.c == node.estado.site.c && estado.site.brujula < node.estado.site.brujula) return true;
+    else if (estado.site.f == node.estado.site.f && estado.site.c == node.estado.site.c && estado.site.brujula == node.estado.site.brujula && estado.zapatillas < node.estado.zapatillas) return true;
+    else return false;
+  }
+};
+
+struct EstadoTubo {
+  int f;
+  int c;
+  int altura_mod;
+  int eco_acumulado;
+};
+
+struct NodoTubo {
+  EstadoTubo estado;
+  std::list<Paso> plan;
+  int tramos;
+  int f_cost;
+};
+
+// Comparador para que la priority_queue actúe como un Min-Heap
+struct ComparaNodosTubo {
+  bool operator()(const NodoTubo& a, const NodoTubo& b) const {
+    // Principalmente ordenamos por el menor f_cost
+    if (a.f_cost != b.f_cost) return a.f_cost > b.f_cost; 
+    // En caso de empate, priorizamos el camino que haya generado menor impacto ecológico
+    return a.estado.eco_acumulado > b.estado.eco_acumulado; 
+  }
+};
 
 class ComportamientoIngeniero : public Comportamiento {
 public:
@@ -22,6 +80,8 @@ public:
    */
   ComportamientoIngeniero(unsigned int size = 0) : Comportamiento(size) {
     // Inicializar Variables de Estado
+    last_action = IDLE;
+    tiene_zapatillas = false;
   }
 
   /**
@@ -32,11 +92,11 @@ public:
   ComportamientoIngeniero(std::vector<std::vector<unsigned char>> mapaR, 
                          std::vector<std::vector<unsigned char>> mapaC): 
                          Comportamiento(mapaR, mapaC) {
-    // Inicializar Variables de Estado
+    last_action = IDLE;
+    tiene_zapatillas = false;
   }
 
-  ComportamientoIngeniero(const ComportamientoIngeniero &comport)
-      : Comportamiento(comport) {}
+  ComportamientoIngeniero(const ComportamientoIngeniero &comport): Comportamiento(comport) {}
   ~ComportamientoIngeniero() {}
 
   /**
@@ -182,7 +242,77 @@ private:
   // =========================================================================
   // VARIABLES DE ESTADO (PUEDEN SER EXTENDIDAS POR EL ALUMNO)
   // =========================================================================
+  Action last_action;
+  bool tiene_zapatillas;
 
+  // Mapa para recordar cuántas veces hemos pasado por cada coordenada
+  std::map<std::pair<int, int>, int> mapa_visitas;
+
+  // Funciones auxiliares
+  /**
+ * @brief Comprueba si el movimiento a la casilla de delante es viable, según sea esta transitable y la altura que tenga
+ * @param actual    Casilla actual del agente
+ * @param zap  Booleano que es true si tiene las zapatillas
+ * @return True si la casilla es transitable y tiene un desnivel aceptable
+ */
+  bool AndarViable0(const ubicacion &actual, bool zap);
+
+  bool AndarViable(const ubicacion &actual, bool zap);
+
+  /**
+   * @brief Comprueba si el salto a la casilla es viable, según sean transitables la casilla y la intermedia y
+   * la diferencia de alturas
+   * @param actual Casilla actual del agente
+   * @param zap True si tiene las zapatillas
+   * @return True si el movimiento es viable
+   */
+  bool SaltarViable0(const ubicacion &actual, bool zap);
+
+  bool SaltarViable(const ubicacion &actual, bool zap);
+
+  bool EsCasillaTransitable(int f, int c, bool tieneZapatillas);
+
+  // Variables para la ejecución de planes (Niveles deliberativos)
+  bool hayPlan = false;
+  std::list<Action> plan;
+
+  // Funciones del Algoritmo de Búsqueda
+  std::list<Action> B_AnchuraIngeniero(const EstadoI &inicio, const EstadoI &final);
+                                       
+  EstadoI applyI(Action accion, const EstadoI &st);
+
+  //Variable Nivel 4
+  std::list<Paso> plan_tuberias;
+  int CalcularImpactoEco(unsigned char terreno, int op);
+  std::list<Paso> AEstrellaTuberias(int inicio_f, int inicio_c, int limite_eco,
+                                    const std::vector<std::vector<unsigned char>> &terreno,
+                                    const std::vector<std::vector<unsigned char>> &altura);
+
+  // --- NUEVAS VARIABLES NIVEL 5 ---
+  enum EstadoIngenieroN5 {
+    I5_CALCULANDO_PLAN,
+    I5_IR_A,
+    I5_ACONDICIONAR_A,
+    I5_LLAMAR_TECNICO,
+    I5_IR_B,
+    I5_ACONDICIONAR_B,
+    I5_MIRAR_A,
+    I5_ESPERAR_SINCRO,
+    I5_COMPLETADO
+  };
+  EstadoIngenieroN5 estado_i5 = I5_CALCULANDO_PLAN;
+  std::list<Paso>::iterator paso_actual_i5;
+  Paso A_paso;
+  Paso B_paso;
+
+  // --- VARIABLES NIVEL 6 ---
+  bool exploracion_terminada_i6 = false;
+  int ciclos_exploracion_i6 = 0;
+  Action ExploracionGuiadaNivel6(Sensores sensores);
+  
+  // Puertas lógicas anti-spam de CPU
+  int mapa_conocido_i6 = 0;
+  int mapa_conocido_tub_i6 = 0;
 };
 
 #endif
